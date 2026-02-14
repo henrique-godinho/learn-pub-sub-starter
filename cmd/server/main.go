@@ -27,6 +27,8 @@ func main() {
 		return
 	}
 
+	_, _, err = pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, "game_logs.*", routing.Durable)
+
 	gamelogic.PrintServerHelp()
 
 	for {
