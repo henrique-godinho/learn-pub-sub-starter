@@ -27,7 +27,7 @@ func main() {
 		return
 	}
 
-	_, _, err = pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, "game_logs.*", routing.Durable)
+	_, _, err = pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, "game_logs.*", pubsub.Transient)
 
 	gamelogic.PrintServerHelp()
 
@@ -35,31 +35,27 @@ func main() {
 		input := gamelogic.GetInput()
 		if len(input) == 0 {
 			continue
-		}
-
-		if input[0] == "pause" {
+		} else if input[0] == "pause" {
 			fmt.Println("sending pause message...")
 			err = pubsub.PublishJSON(ch, string(routing.ExchangePerilDirect), string(routing.PauseKey), routing.PlayingState{IsPaused: true})
 			if err != nil {
 				fmt.Println("Error pausing the game")
 				return
 			}
-		}
-
-		if input[0] == "resume" {
+		} else if input[0] == "resume" {
 			fmt.Println("sending resume message...")
 			err = pubsub.PublishJSON(ch, string(routing.ExchangePerilDirect), string(routing.PauseKey), routing.PlayingState{IsPaused: false})
 			if err != nil {
 				fmt.Println("Error pausing the game")
 				return
 			}
-		}
-
-		if input[0] == "quit" {
+		} else if input[0] == "quit" {
 			fmt.Println("exiting...")
 			return
+		} else {
+			fmt.Println("Unknown command...")
 		}
-		fmt.Println("Unknown command...")
+
 	}
 
 }
