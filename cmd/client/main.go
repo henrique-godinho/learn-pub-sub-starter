@@ -94,23 +94,23 @@ func main() {
 
 	}
 
-	// signalChan := make(chan os.Signal, 1)
-	// signal.Notify(signalChan, os.Interrupt)
-	// <-signalChan
-	// fmt.Println("... shutting client down...")
 }
 
-func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.AckType {
 	defer fmt.Print("> ")
-	return func(ps routing.PlayingState) {
+	return func(ps routing.PlayingState) pubsub.AckType {
 		gs.HandlePause(ps)
+		return pubsub.Ack
 	}
-
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
-	return func(move gamelogic.ArmyMove) {
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckType {
+	return func(move gamelogic.ArmyMove) pubsub.AckType {
 		defer fmt.Print("> ")
-		gs.HandleMove(move)
+		mvOucome := gs.HandleMove(move)
+		if mvOucome == gamelogic.MoveOutComeSafe || mvOucome == gamelogic.MoveOutcomeMakeWar {
+			return pubsub.Ack
+		}
+		return pubsub.NackDiscard
 	}
 }
