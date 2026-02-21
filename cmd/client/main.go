@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -48,7 +49,7 @@ func main() {
 	pubsub.SubscribeJSON(conn, routing.ExchangePerilTopic, movesQueue, "army_moves.*",
 		pubsub.Transient, handlerMove(gameState, publishChannel))
 
-	pubsub.SubscribeJSON(conn, routing.ExchangePerilTopic, "war", routing.WarRecognitionsPrefix+".*", pubsub.Durable, handlerWar(gameState))
+	pubsub.SubscribeJSON(conn, routing.ExchangePerilTopic, "war", routing.WarRecognitionsPrefix+".*", pubsub.Durable, handlerWar(gameState, publishChannel))
 
 	for {
 		input := gamelogic.GetInput()
@@ -111,10 +112,12 @@ func handlerMove(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogi
 		defer fmt.Print("> ")
 		mvOucome := gs.HandleMove(move)
 		switch mvOucome {
+		case gamelogic.MoveOutcomeSamePlayer:
+			return pubsub.Ack
 		case gamelogic.MoveOutComeSafe:
 			return pubsub.Ack
 		case gamelogic.MoveOutcomeMakeWar:
-			key := routing.WarRecognitionsPrefix + "." + gs.GetUsername()
+			key := routing.WarRecognitionsPrefix + "." + move.Player.Username
 			err := pubsub.PublishJSON(publishCh, routing.ExchangePerilTopic, key, gamelogic.RecognitionOfWar{
 				Attacker: move.Player,
 				Defender: gs.GetPlayerSnap(),
@@ -128,11 +131,16 @@ func handlerMove(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogi
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+func handlerWar(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+
 	return func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
 		defer fmt.Print("> ")
 
-		outcome, _, _ := gs.HandleWar(rw)
+		outcome, w, l := gs.HandleWar(rw)
+		fmt.Println("war outcome:", outcome, "winner:", w, "loser:", l)
+
+		winMessage := w + " won a war against " + l
+		drawMessage := "A war between " + w + " and " + l + " resulted in a draw "
 
 		// TODO: switch on outcome and return the appropriate AckType
 		switch outcome {
@@ -141,10 +149,19 @@ func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub
 		case gamelogic.WarOutcomeNoUnits:
 			return pubsub.NackDiscard
 		case gamelogic.WarOutcomeOpponentWon:
+			if err := publishGameLog(publishCh, gs.GetUsername(), winMessage); err != nil {
+				return pubsub.NackRequeue
+			}
 			return pubsub.Ack
 		case gamelogic.WarOutcomeYouWon:
+			if err := publishGameLog(publishCh, gs.GetUsername(), winMessage); err != nil {
+				return pubsub.NackRequeue
+			}
 			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
+			if err := publishGameLog(publishCh, gs.GetUsername(), drawMessage); err != nil {
+				return pubsub.NackRequeue
+			}
 			return pubsub.Ack
 		default:
 			fmt.Println("unknown outcome")
@@ -152,4 +169,15 @@ func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub
 		}
 
 	}
+}
+
+func publishGameLog(publishCh *amqp.Channel, username, message string) error {
+	log := routing.GameLog{
+		CurrentTime: time.Now(),
+		Message:     message,
+		Username:    username,
+	}
+
+	return pubsub.PublishGob(publishCh, routing.ExchangePerilTopic, routing.GameLogSlug+"."+username, log)
+
 }
