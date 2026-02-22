@@ -147,3 +147,73 @@ func PublishGob[T any](ch *amqp.Channel, exchange, key string, val T) error {
 		},
 	)
 }
+
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType SimpleQueueType,
+	handler func(T) AckType,
+	unmarshaller func([]byte) (T, error),
+) error {
+	ch, q, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
+	if err != nil {
+		return err
+	}
+
+	delivery, err := ch.Consume(q.Name, "", false, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for message := range delivery {
+			t, err := unmarshaller(message.Body)
+			if err != nil {
+				fmt.Println("error unmarshaling")
+				continue
+			}
+			ackType := handler(t)
+			switch ackType {
+			case Ack:
+				message.Ack(false)
+				fmt.Println("Ack case triggered")
+			case NackRequeue:
+				message.Nack(false, true)
+				fmt.Println("Nack Requeue triggered")
+			case NackDiscard:
+				message.Nack(false, false)
+				fmt.Println("Nack Discard triggered")
+			}
+		}
+	}()
+	return nil
+}
+
+func SubscribeGob[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType SimpleQueueType,
+	handler func(T) AckType,
+) error {
+	// Call the helper and pass ALL those arguments through!
+	return subscribe[T](
+		conn,
+		exchange,
+		queueName,
+		key,
+		simpleQueueType,
+		handler,
+		func(data []byte) (T, error) {
+			var target T
+			buffer := bytes.NewBuffer(data)
+			dec := gob.NewDecoder(buffer)
+			err := dec.Decode(&target)
+			return target, err
+
+		},
+	)
+}

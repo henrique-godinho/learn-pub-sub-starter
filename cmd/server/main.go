@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -28,9 +27,10 @@ func main() {
 		return
 	}
 
-	_, _, err = pubsub.DeclareAndBind(conn, routing.ExchangePerilTopic, routing.GameLogSlug, "game_logs.*", pubsub.Transient)
+	err = pubsub.SubscribeGob(conn, routing.ExchangePerilTopic, routing.GameLogSlug, routing.GameLogSlug+".*", pubsub.Durable, handlerLogs())
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+		return
 	}
 
 	gamelogic.PrintServerHelp()
@@ -62,4 +62,12 @@ func main() {
 
 	}
 
+}
+
+func handlerLogs() func(routing.GameLog) pubsub.AckType {
+	return func(glog routing.GameLog) pubsub.AckType {
+		defer fmt.Print("> ")
+		gamelogic.WriteLog(glog)
+		return pubsub.Ack
+	}
 }
